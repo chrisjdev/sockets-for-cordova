@@ -21,9 +21,6 @@
 #include <math.h>
 #import "SocketAdapter.h"
 
-CFReadStreamRef readStream;
-CFWriteStreamRef writeStream;
-
 NSInputStream *inputStream;
 NSOutputStream *outputStream;
 
@@ -41,6 +38,9 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
         host = [self resolveIp:host];
     }
     
+
+    CFReadStreamRef readStream;
+    CFWriteStreamRef writeStream;
     CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, (__bridge CFStringRef)host, [port intValue], &readStream, &writeStream);
     
     CFReadStreamSetProperty(readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
@@ -48,15 +48,18 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
     
     if(!CFWriteStreamOpen(writeStream) || !CFReadStreamOpen(readStream)) {
 		NSLog(@"Error, streams not open");
-		
+		// Release the streams explicitly because we have ownership now.
+        CFRelease(writeStream);
+        CFRelease(readStream);
+
         @throw [NSException exceptionWithName:@"SocketException" reason:@"Cannot open streams." userInfo:nil];
 	}
     
-    inputStream = (__bridge NSInputStream *)readStream;
+    inputStream = (__bridge_transfer NSInputStream *)readStream;
     [inputStream setDelegate:self];
     [inputStream open];
     
-    outputStream = (__bridge NSOutputStream *)writeStream;
+    outputStream = (__bridge_transfer NSOutputStream *)writeStream;
     [outputStream open];
 
     [self performSelectorOnMainThread:@selector(runReadLoop) withObject:nil waitUntilDone:NO];
