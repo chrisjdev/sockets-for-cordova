@@ -20,17 +20,27 @@
 #import <cordova/CDV.h>
 #import <Foundation/Foundation.h>
 
+@interface SocketPlugin()
+{
+    dispatch_queue_t backgroundQueue;
+}
+
+@end
+
 @implementation SocketPlugin : CDVPlugin
+
+-(void) pluginInitialize
+{
+    [super pluginInitialize];
+    socketAdapters = [[NSMutableDictionary alloc] init];
+    backgroundQueue = dispatch_queue_create("cordova.SocketPlugin", DISPATCH_QUEUE_SERIAL);
+}
 
 - (void) open : (CDVInvokedUrlCommand*) command {
     
 	NSString *socketKey = [command.arguments objectAtIndex:0];
 	NSString *host = [command.arguments objectAtIndex:1];
 	NSNumber *port = [command.arguments objectAtIndex:2];
-    
-    if (socketAdapters == nil) {
-		self->socketAdapters = [[NSMutableDictionary alloc] init];
-	}
     
 	__block SocketAdapter* socketAdapter = [[SocketAdapter alloc] init];
     socketAdapter.openEventHandler = ^ void () {
@@ -74,7 +84,7 @@
         [self removeSocketAdapter:socketKey];
     };
     
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(backgroundQueue, ^{
         @try {
             [socketAdapter open:host port:port];
         }
@@ -85,7 +95,7 @@
             
             socketAdapter = nil;
         }
-    }];
+    });
 }
 
 - (void) write:(CDVInvokedUrlCommand *) command {
@@ -95,8 +105,9 @@
     
     SocketAdapter *socket = [self getSocketAdapter:socketKey];
     
-	[self.commandDelegate runInBackground:^{
+    dispatch_async(backgroundQueue, ^{
         @try {
+            [self checkSocketAdapter:socket forKey:socketKey];
             [socket write:data];
             [self.commandDelegate
              sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK]
@@ -107,7 +118,7 @@
              sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:e.reason]
              callbackId:command.callbackId];
         }
-    }];
+    });
 }
 
 - (void) shutdownWrite:(CDVInvokedUrlCommand *) command {
@@ -116,8 +127,9 @@
 	
 	SocketAdapter *socket = [self getSocketAdapter:socketKey];
     
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(backgroundQueue, ^{
         @try {
+            [self checkSocketAdapter:socket forKey:socketKey];
             [socket shutdownWrite];
             [self.commandDelegate
             sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK]
@@ -128,7 +140,7 @@
             sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:e.reason]
             callbackId:command.callbackId];
         }
-    }];
+    });
 }
 
 - (void) close:(CDVInvokedUrlCommand *) command {
@@ -137,8 +149,9 @@
 	
 	SocketAdapter *socket = [self getSocketAdapter:socketKey];
     
-    [self.commandDelegate runInBackground:^{
+    dispatch_async(backgroundQueue, ^{
         @try {
+            [self checkSocketAdapter:socket forKey:socketKey];
             [socket close];
             [self.commandDelegate
              sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK]
@@ -149,20 +162,22 @@
              sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:e.reason]
              callbackId:command.callbackId];
         }
-    }];
+    });
 }
 
 - (void) setOptions: (CDVInvokedUrlCommand *) command {
 }
 
 - (SocketAdapter*) getSocketAdapter: (NSString*) socketKey {
-	SocketAdapter* socketAdapter = [self->socketAdapters objectForKey:socketKey];
-	if (socketAdapter == nil) {
-		NSString *exceptionReason = [NSString stringWithFormat:@"Cannot find socketKey: %@. Connection is probably closed.", socketKey];
-		
-		@throw [NSException exceptionWithName:@"IllegalArgumentException" reason:exceptionReason userInfo:nil];
-	}
-	return socketAdapter;
+	return self->socketAdapters[socketKey];
+}
+
+
+- (void) checkSocketAdapter: (SocketAdapter*) socket forKey:(NSString*) socketKey {
+    if (socket == nil) {
+        NSString *exceptionReason = [NSString stringWithFormat:@"Cannot find socketKey: %@. Connection is probably closed.", socketKey];
+        @throw [NSException exceptionWithName:@"IllegalArgumentException" reason:exceptionReason userInfo:nil];
+    }
 }
 
 - (void) removeSocketAdapter: (NSString*) socketKey {

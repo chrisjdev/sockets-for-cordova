@@ -21,14 +21,28 @@
 #include <math.h>
 #import "SocketAdapter.h"
 
-NSInputStream *inputStream;
-NSOutputStream *outputStream;
+@interface SocketAdapter() {
+    NSInputStream *inputStream;
+    NSOutputStream *outputStream;
+    
+    BOOL wasOpenned;
+    
+}
 
-BOOL wasOpenned = FALSE;
+@end
 
 int const WRITE_BUFFER_SIZE = 10 * 1024;
 
 @implementation SocketAdapter
+
+-(SocketAdapter* ) init {
+    self = [super init];
+    if(self) {
+        wasOpenned = NO;
+    }
+    return self;
+}
+
 
 - (void)open:(NSString *)host port:(NSNumber*)port {
     
@@ -42,18 +56,15 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
     CFReadStreamRef readStream;
     CFWriteStreamRef writeStream;
     CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, (__bridge CFStringRef)host, [port intValue], &readStream, &writeStream);
-    
-    CFReadStreamSetProperty(readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
-    CFWriteStreamSetProperty(writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
-    
+
     if(!CFWriteStreamOpen(writeStream) || !CFReadStreamOpen(readStream)) {
-		NSLog(@"Error, streams not open");
-		// Release the streams explicitly because we have ownership now.
+        NSLog(@"Error, streams not open");
+        // Release the streams explicitly because we have ownership now.
         CFRelease(writeStream);
         CFRelease(readStream);
-
+        
         @throw [NSException exceptionWithName:@"SocketException" reason:@"Cannot open streams." userInfo:nil];
-	}
+    }
     
     inputStream = (__bridge_transfer NSInputStream *)readStream;
     [inputStream setDelegate:self];
@@ -61,13 +72,13 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
     
     outputStream = (__bridge_transfer NSOutputStream *)writeStream;
     [outputStream open];
-
+    
     [self performSelectorOnMainThread:@selector(runReadLoop) withObject:nil waitUntilDone:NO];
 }
 
 -(BOOL)isIp:(NSString*) host {
     const char *utf8 = [host UTF8String];
-        
+
     // Check valid IPv4.
     struct in_addr dst;
     int success = inet_pton(AF_INET, utf8, &(dst.s_addr));
@@ -123,6 +134,15 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
     outputStream = nil;
 }
 
+-(void)dealloc
+{
+    if(inputStream || outputStream) {
+        NSLog(@"Ideally streams would have been cleaned up by now.");
+        [self closeStreams];
+        
+    }
+}
+
 -(int) socknumForStream: (NSStream *)stream
 {
     int sock = -1;
@@ -148,7 +168,7 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
             if(stream == inputStream) {
                 uint8_t buf[65535];
                 long len = [inputStream read:buf maxLength:65535];
-
+                
                 if(len > 0) {
                     NSMutableArray *dataArray = [[NSMutableArray alloc] init];
                     for (long i = 0; i < len; i++) {
