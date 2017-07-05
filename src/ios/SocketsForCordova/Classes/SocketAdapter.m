@@ -45,7 +45,6 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
 
 
 - (void)open:(NSString *)host port:(NSNumber*)port {
-    
     NSLog(@"Setting up connection to %@ : %@", host, [port stringValue]);
     
     if (![self isIp:host]) {
@@ -114,12 +113,14 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
 }
 
 - (void)shutdownWrite {
-    NSLog(@"Shuting down write on socket.");
-    
-    [self closeOutputStream];
-    
-    int socket = [self socknumForStream: inputStream];
-    shutdown(socket, 1);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@"Shuting down write on socket.");
+        
+        [self closeOutputStream];
+        
+        int socket = [self socknumForStream: inputStream];
+        shutdown(socket, 1);
+    });
 }
 
 - (void)closeInputStream {
@@ -236,8 +237,10 @@ int const WRITE_BUFFER_SIZE = 10 * 1024;
 }
 
 - (void)close {
-    self.closeEventHandler(FALSE);
-    [self closeStreams];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.closeEventHandler(FALSE);
+        [self closeStreams];
+    });
 }
 
 - (void)closeStreams {
